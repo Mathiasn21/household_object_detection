@@ -46,7 +46,7 @@ def rotate_scale_image(image: ndarray, angle: int, scale=1.0):
     # subtract old image center (bringing image back to origo) and adding the new image center coordinates
     rot_mat[0, 2] += bound_w / 2 - image_center[0]
     rot_mat[1, 2] += bound_h / 2 - image_center[1]
-    color = (255, 255, 255)
+    color = (0, 0, 0)
 
     return cv2.warpAffine(image, rot_mat, (bound_w, bound_h), flags=cv2.INTER_LINEAR,
                           borderMode=cv2.BORDER_CONSTANT, borderValue=color)
