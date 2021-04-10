@@ -56,7 +56,7 @@ def crop_object_from_image(image_src: ndarray, points: ndarray, x, y, width, hei
     cv2.bitwise_not(bg, bg, mask=object_mask[y:y + height, x:x + width])
     dst2 = bg + object_fg
 
-    object_fg_white = rotate_image(dst2, -60)
+    object_fg_white = rotate_scale_image(dst2, -60)
 
     cv2.imwrite('testing_cropping_object.jpg', object_fg_white)
 
