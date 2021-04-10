@@ -1,50 +1,19 @@
 # Load coco annotations into dict
 # Extrapolate the object polygon information in image
 # Paste polygon into new image
-from typing import List
+from typing import List, Dict
 
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy import ndarray
 
-from tools.tools import load_annotations, load_images
+from tools.tools import load_annotations, rotate_scale_image, load_image
 
 
-def show_images(images: List[ndarray]) -> None:
-    n: int = len(images)
-    f = plt.figure()
-    for i in range(n):
-        # Debug, plot figure
-        f.add_subplot(1, n, i + 1)
-        plt.imshow(images[i])
+def crop_object_from_image(image_src: ndarray, points: ndarray, xywh: List[int]):
+    x, y, width, height = xywh
 
-    plt.show(block=True)
-
-
-def rotate_scale_image(image: ndarray, angle: int, scale=1.0):
-    height, width = image.shape[:2]
-
-    image_center = (width / 2, height / 2)
-    rot_mat = cv2.getRotationMatrix2D(image_center, angle, scale)
-
-    # rotation calculates the cos and sin, taking absolutes of those.
-    abs_cos = abs(rot_mat[0, 0])
-    abs_sin = abs(rot_mat[0, 1])
-
-    # find the new width and height bounds
-    bound_w = int(height * abs_sin + width * abs_cos)
-    bound_h = int(height * abs_cos + width * abs_sin)
-
-    # subtract old image center (bringing image back to origo) and adding the new image center coordinates
-    rot_mat[0, 2] += bound_w / 2 - image_center[0]
-    rot_mat[1, 2] += bound_h / 2 - image_center[1]
-
-    return cv2.warpAffine(image, rot_mat, (bound_w, bound_h), flags=cv2.INTER_LINEAR,
-                          borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
-
-
-def crop_object_from_image(image_src: ndarray, points: ndarray, x, y, width, height):
     # Create mask for object
     object_mask = np.zeros((image_src.shape[0], image_src.shape[1]), dtype=np.uint8)
     cropped = image_src[y:y + height, x:x + width].copy()
@@ -61,23 +30,46 @@ def crop_object_from_image(image_src: ndarray, points: ndarray, x, y, width, hei
     cv2.imwrite('testing_cropping_object.jpg', object_fg_white)
 
 
+def round_all(numbers):
+    return [round(number) for number in numbers]
+
+
+def extract_objects_from_images(img_dir: str, annotation_dir: str):
+    coco_annotations = load_annotations(annotation_dir)
+    image_descriptions = coco_annotations['images']
+
+    image_annotations = coco_annotations['annotations']
+
+    # Sort coco_annotations by image_id
+    image_annotations = sorted(image_annotations, key=lambda i: i['image_id'])
+    image_annotations = iter(image_annotations)
+
+    for image_desc in image_descriptions:
+        image_id: int = image_desc['id']
+
+        image_annotation: Dict = next(image_annotations, {'image_id': -1})
+        ann_img_id: int = image_annotation['image_id']
+        if ann_img_id == -1:
+            break
+
+        while image_id == ann_img_id:
+            segmentation = np.array(image_annotation['segmentation'][0], dtype=np.int32)
+            xywh = round_all(image_annotation['bbox'])
+
+            file_name = coco_annotations['images'][0]['file_name']
+
+            image = load_image(img_dir + '/' + file_name)
+            points = np.reshape(segmentation, (-1, 2))
+            crop_object_from_image(image, points, xywh)
+
+            image_annotation = next(image_annotations, default={'image_id': -1})
+            ann_img_id = image_annotation['image_id']
+
+
 if __name__ == '__main__':
     img_dir = '../data/testing_imgs'
-    annotations = load_annotations('../data/testing_annotations/household_objects.json')
-    images = load_images(img_dir)
-    background_image = cv2.imread('../data/background_imgs/background_1.jpeg')
-
-    segmentations = []
-    polygons = []
-    segmentation = np.array(annotations['annotations'][0]['segmentation'][0], dtype=np.int32)
-    x = round(annotations['annotations'][0]['bbox'][0])
-    y = round(annotations['annotations'][0]['bbox'][1])
-    width = round(annotations['annotations'][0]['bbox'][2])
-    height = round(annotations['annotations'][0]['bbox'][3])
-    file_name = annotations['images'][0]['file_name']
-
-    points = np.reshape(segmentation, (-1, 2))
-    crop_object_from_image(images[file_name], points, x, y, width, height)
+    annotations_dir = '../data/testing_annotations/household_objects.json'
+    extract_objects_from_images(img_dir, annotations_dir)
 
     """
     segmentation = annotations['annotations'][0]['segmentation'][0]
@@ -97,6 +89,7 @@ if __name__ == '__main__':
     """
 
     """
+    # background_image = cv2.imread('../data/background_imgs/background_1.jpeg')
     # images = [image_src, background_image]
     # roi = background_image[150: 150 + height, 250:250 + width, :]
     # mask_inv = cv2.bitwise_not(object_mask)
