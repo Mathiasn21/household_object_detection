@@ -10,6 +10,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy import ndarray
+from shapely.geometry import Polygon, box
 
 from tools.tools import load_annotations, rotate_scale_image, load_image, show_images
 
@@ -126,44 +127,50 @@ def generate_objects_from_images(img_dir: str, coco_annotations, categories):
     return clazz_image_information
 
 
-def embed_object_into_image(object_image, background_image):
-    # Create mask
-    # background_image = cv2.imread('../data/background_imgs/background_1.jpeg')
-    images = [object_image, background_image]
-    # roi = background_image[150: 150 + height, 250:250 + width, :]
-    # mask_inv = cv2.bitwise_not(object_mask)
+def safe_polygon_placement(xywh, existing_polygons):
+    x, y, w, h = xywh
+    b = box(x, y, x + w, y + h)
+    return not np.any([poly.intersects(b) for poly in existing_polygons])
+    #for poly in existing_polygons:
+    #   if poly.intersects(b):
+    #        return False
+    #return True
 
-    # roi_background = cv2.bitwise_and(roi, roi, mask=mask_inv[y:y + height, x:x + width])
-    # dst = cv2.add(roi_background, object_fg)
+
+def embed_object_into_image(object_image, background_image, xy_offset):
+    x_offset, y_offset = xy_offset
+    o_height, o_width = object_image.shape[:2]
+
     gray = cv2.cvtColor(object_image, cv2.COLOR_BGR2GRAY)
     # blur = cv2.GaussianBlur(gray, (3, 3), 0)
     thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-
     contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    height, width = thresh.shape[:2]
-    roi = background_image[150:150 + height, 250:250 + width].copy()
-    mask_inv = cv2.bitwise_not(thresh)
+
+    roi = background_image[y_offset:y_offset + o_height, x_offset:x_offset + o_width].copy()
 
     roi_background = cv2.bitwise_and(roi, roi, mask=thresh)
     dst = cv2.add(roi_background, object_image)
 
-    background_image[150: 150 + height, 250:250 + width, :] = dst
-    cv2.imwrite('./testing_embedding.jpg', background_image)
+    background_image[y_offset: y_offset + o_height, x_offset:x_offset + o_width, :] = dst
+    if len(contours) < 2:
+        index = 0
+    else:
+        index = 1
 
-    # draw the contours on the empty image
-    # mask = np.zeros(object_image.shape[:2], np.uint8)
-
-    # cv2.drawContours(mask, [contours[1]], -1, 255, 3)
-
-    images.append(thresh)
-    images.append(mask_inv)
-    images.append(dst)
-    images.append(roi)
-    images.append(background_image)
-    show_images(images)
+    resulting_contours = contours[index][:, 0, :] + [x_offset, y_offset]
+    return Polygon(np.flip(resulting_contours, 1))
 
 
-def generate_images_using(objects_dir: str, images_dir: str, classes, min_images_per_class: int = 10):
+def generate_random_offset(background_shape, object_shape):
+    b_height, b_width = background_shape
+    o_height, o_width = object_shape
+
+    random_x = random.randrange(0, b_width - o_width, 1)
+    random_y = random.randrange(0, b_height - o_height, 1)
+    return random_x, random_y
+
+
+def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_images_per_class: int = 10):
     prob_additional_objects = 0.7
     background_images = os.listdir(images_dir)
     numb_backgrounds = len(background_images)
@@ -174,24 +181,105 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, min_images
         numb_clazz_objects = len(clazz_images_names)
 
         for i in range(min_images_per_class):
+            # Variable storing created polygons
+            object_list = []
             # Pick random background
             background_image_path = background_images[random.randint(0, numb_backgrounds - 1)]
             # load background image
             background_image = load_image(images_dir + background_image_path)
+            b_height, b_width = background_image.shape[:2]
 
-            # Pick random background
-            foreground_object_path = clazz_images_names[random.randint(0, numb_clazz_objects)]
-            # load background image
-            foreground_object = load_image(images_dir + foreground_object_path)
+            # Pick random augmented object
+            foreground_object_path = clazz_images_names[random.randint(0, numb_clazz_objects - 1)]
+            # load object image
+            foreground_object = load_image(objects_dir + foreground_object_path)
 
-            embed_object_into_image(foreground_object, background_image)
+            o_height, o_width = foreground_object.shape[:2]
+            x_offset, y_offset = generate_random_offset((b_height, b_width), (o_height, o_width))
+            polygon = embed_object_into_image(foreground_object, background_image, (x_offset, y_offset))
+            object_list.append(polygon)
+
             # Add additional objects into the image
             while random.random() < prob_additional_objects:
+                while True:
+                    x_offset, y_offset = generate_random_offset((b_height, b_width), (o_height, o_width))
+                    if safe_polygon_placement((x_offset, y_offset, o_width, o_height), object_list):
+                        break
                 # Pick random object from class
-                embed_object_into_image(foreground_object, background_image)
+                polygon = embed_object_into_image(foreground_object, background_image, (x_offset, y_offset))
+                object_list.append(polygon)
 
+            file_name = str(uuid.uuid4()).replace('-', '') + '.jpg'
+            cv2.imwrite(out + file_name, background_image)
     # Create annotations for the object
     # Store annotations for that object along with image information
+    """
+    {
+  "info": {
+    "description": "household_detection"
+  },
+  "images": [
+    {
+      "id": 1,
+      "width": 1131,
+      "height": 754,
+      "file_name": "inside_1.jpg"
+    }
+  ],
+  "annotations": [
+    {
+      "id": 0,
+      "iscrowd": 0,
+      "image_id": 1,
+      "category_id": 1,
+      "segmentation": [
+        [
+          328.95698051948034,
+          513.9634063852811,
+          333.1645698051947,
+          514.7284226190474,
+          340.4322240259739,
+          514.7284226190474,
+          343.4922889610388,
+          509.7558170995669,
+          347.6998782467531,
+          499.4280979437227,
+          347.31737012986997,
+          486.42282196969677,
+          342.34476461038946,
+          481.06770833333314,
+          344.63981331168816,
+          478.0076433982682,
+          339.66720779220765,
+          474.18256222943705,
+          332.01704545454527,
+          476.86011904761887,
+          326.2794237012985,
+          480.68520021645,
+          321.306818181818,
+          490.24790313852793,
+          323.98437499999983,
+          502.87067099567076
+        ]
+      ],
+      "bbox": [
+        321.306818181818,
+        474.18256222943705,
+        26.39306006493507,
+        40.54586038961031
+      ],
+      "area": 793.5987802274835
+    }
+  ],
+  "categories": [
+    {
+      "id": 1,
+      "name": "Thing"
+    }
+  ]
+}
+    """
+
 
 
 if __name__ == '__main__':
@@ -199,18 +287,16 @@ if __name__ == '__main__':
     annotation_dir = '../data/testing_annotations/household_objects.json'
     augmented_objects_dir = '../data/augmented_objects/'
     background_images_dir = '../data/background_imgs/'
+    out = '../data/generated_images/'
 
     coco_annotations = load_annotations(annotation_dir)
     categories = coco_annotations['categories']
 
-    # generated_images_information = generate_objects_from_images(img_dir, coco_annotations, categories)
+    generated_images_information = generate_objects_from_images(img_dir, coco_annotations, categories)
 
-    # generate_images_using(augmented_objects_dir, background_images_dir, generated_images_information)
+    generate_images_using(augmented_objects_dir, background_images_dir, generated_images_information, out)
 
-    embed_object_into_image(load_image(
-        r'D:\projects_git\image_analysis\household_object_detection\data\augmented_objects\2aabde033038447eae39b980aa0e18eb.jpg'),
-                            load_image(
-                                r'D:\projects_git\image_analysis\household_object_detection\data\background_imgs\background_1.jpeg'))
+
     """
     segmentation = annotations['annotations'][0]['segmentation'][0]
     np.reshape(segmentation, (-1, 2))
