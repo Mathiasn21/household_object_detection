@@ -12,7 +12,7 @@ from randomdict import RandomDict
 from numpy import ndarray
 from shapely.geometry import Polygon, box
 
-from tools.tools import load_annotations, rotate_scale_image, load_image
+from tools.tools import load_annotations, rotate_scale_image, load_image, save_annotations, clear_directory_contents
 
 
 def crop_object_from_image(image_src: ndarray, points: ndarray, xywh: List[int], padding=2):
@@ -131,10 +131,6 @@ def safe_polygon_placement(xywh, existing_polygons):
     x, y, w, h = xywh
     b = box(x, y, x + w, y + h)
     return not np.any([poly.intersects(b) for poly in existing_polygons])
-    # for poly in existing_polygons:
-    #   if poly.intersects(b):
-    #        return False
-    # return True
 
 
 def embed_object_into_image(object_image, background_image, xy_offset):
@@ -158,7 +154,7 @@ def embed_object_into_image(object_image, background_image, xy_offset):
         index = 1
 
     resulting_contours = contours[index][:, 0, :] + [x_offset, y_offset]
-    return Polygon(np.flip(resulting_contours, 1))
+    return Polygon(np.array(resulting_contours))
 
 
 def generate_random_offset(background_shape, object_shape):
@@ -215,7 +211,7 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
                 "iscrowd": 0,
                 "image_id": file_name,
                 "category_id": clazz_id,
-                "segmentation": [],
+                "segmentation": [np.array(polygon.exterior.coords).ravel().tolist()],
                 "bbox": [x_offset, y_offset, o_width, o_height],
                 "area": polygon.area
             }
@@ -257,34 +253,7 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
             image_dict = {'id': file_name, 'width': b_height, 'height': b_height, 'file_name': file_name + '.jpg'}
             images.append(image_dict)
 
-            # Create annotations for the object
-            # Store annotations for that object along with image information
-    """
-    {
-  "info": {
-    "description": "household_detection"
-  },
-  "images": [
-    {
-      "id": 1,
-      "width": 1131,
-      "height": 754,
-      "file_name": "inside_1.jpg"
-    }
-  ],
-  "annotations": [
-    {
-      
-    }
-  ],
-  "categories": [
-    {
-      "id": 1,
-      "name": "Thing"
-    }
-  ]
-}
-    """
+    return images, annotations
 
 
 if __name__ == '__main__':
@@ -292,28 +261,40 @@ if __name__ == '__main__':
     annotation_dir = '../data/testing_annotations/household_objects.json'
     augmented_objects_dir = '../data/augmented_objects/'
     background_images_dir = '../data/background_imgs/'
+    extrapolated_objects_dir = '../data/extrapolated_objects/'
     out = '../data/generated_images/'
+    generated_annotation_path = '../data/generated_annotations.json'
+    generated_train_annotation_path = '../data/generated_train_annotations.json'
+    generated_val_annotation_path = '../data/generated_test_annotations.json'
+    generated_test_annotation_path = '../data/generated_val_annotations.json'
 
     coco_annotations = load_annotations(annotation_dir)
     categories = coco_annotations['categories']
 
+    clear_directory_contents([augmented_objects_dir, out, extrapolated_objects_dir])
     generated_images_information = generate_objects_from_images(img_dir, coco_annotations, categories)
 
-    generate_images_using(augmented_objects_dir, background_images_dir, generated_images_information, out)
+    image_information, annotations = generate_images_using(augmented_objects_dir, background_images_dir, generated_images_information, out)
 
-    """
-    segmentation = annotations['annotations'][0]['segmentation'][0]
-    np.reshape(segmentation, (-1, 2))
-    poly = Polygon(contour)
-    poly = poly.simplify(1.0, preserve_topology=False)
-    polygons.append(poly)
-    segmentation2 = np.array(poly.exterior.coords).ravel().tolist()
+    coco_annotations['images'] = image_information
+    coco_annotations['annotations'] = annotations
+    save_annotations(coco_annotations, generated_annotation_path)
 
-    # Combine the polygons to calculate the bounding box and area
-    multi_poly = MultiPolygon(polygons)
-    x, y, max_x, max_y = multi_poly.bounds
-    width = max_x - x
-    height = max_y - y
-    bbox = (x, y, width, height)
-    area = multi_poly.area
-    """
+    # Split annotations and image_information into train, validation, test sets
+    validation_split = 0.20
+    test_split = 0.10
+    train_split = 1 - validation_split - test_split
+
+    num_rows = len(image_information)
+
+    train_split_index = int(np.floor((num_rows - 1) * train_split)) + 1
+    test_split_index = int(np.floor((num_rows - 1) * (train_split + test_split))) + 1
+
+    train = image_information[0:train_split_index]
+    test = image_information[train_split_index:test_split_index]
+    val = image_information[test_split_index:]
+
+    save_annotations(coco_annotations, generated_annotation_path)
+    save_annotations(coco_annotations, generated_annotation_path)
+    save_annotations(coco_annotations, generated_annotation_path)
+

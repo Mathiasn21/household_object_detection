@@ -4,6 +4,7 @@ from typing import Dict, List
 
 import cv2
 from numpy import ndarray
+import numpy as np
 
 import matplotlib.pyplot as plt
 
@@ -12,6 +13,12 @@ def load_annotations(file_path: str) -> Dict:
     with open(file_path) as json_file:
         data = json.load(json_file)
     return data
+
+
+def save_annotations(annotations, file_path: str):
+    json_formatted_annotations = json.dumps(annotations)
+    with open(file_path, 'w+') as json_file:
+        json_file.write(json_formatted_annotations)
 
 
 def load_image(file_path: str):
@@ -27,6 +34,12 @@ def show_images(images: List[ndarray]) -> None:
         plt.imshow(images[i])
 
     plt.show(block=True)
+
+
+def clear_directory_contents(directories: list):
+    for directory in directories:
+        for file in os.listdir(directory):
+            os.remove(directory + file)
 
 
 def rotate_scale_image(image: ndarray, angle: int, scale=1.0):
