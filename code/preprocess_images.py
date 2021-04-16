@@ -7,12 +7,12 @@ import uuid
 from typing import List, Dict
 
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
+from randomdict import RandomDict
 from numpy import ndarray
 from shapely.geometry import Polygon, box
 
-from tools.tools import load_annotations, rotate_scale_image, load_image, show_images
+from tools.tools import load_annotations, rotate_scale_image, load_image
 
 
 def crop_object_from_image(image_src: ndarray, points: ndarray, xywh: List[int], padding=2):
@@ -89,7 +89,7 @@ def round_all(numbers):
 def generate_objects_from_images(img_dir: str, coco_annotations, categories):
     image_descriptions = coco_annotations['images']
     image_annotations = coco_annotations['annotations']
-    clazz_image_information = {x['id']: {'name': x['name'], 'images': []} for x in categories}
+    clazz_image_information = RandomDict({x['id']: {'name': x['name'], 'images': []} for x in categories})
 
     # Sort coco_annotations by image_id
     image_annotations = sorted(image_annotations, key=lambda i: i['image_id'])
@@ -131,10 +131,10 @@ def safe_polygon_placement(xywh, existing_polygons):
     x, y, w, h = xywh
     b = box(x, y, x + w, y + h)
     return not np.any([poly.intersects(b) for poly in existing_polygons])
-    #for poly in existing_polygons:
+    # for poly in existing_polygons:
     #   if poly.intersects(b):
     #        return False
-    #return True
+    # return True
 
 
 def embed_object_into_image(object_image, background_image, xy_offset):
@@ -170,10 +170,20 @@ def generate_random_offset(background_shape, object_shape):
     return random_x, random_y
 
 
+def create_image_label_dict():
+    pass
+
+
+def create_annotations_dict():
+    pass
+
+
 def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_images_per_class: int = 10):
     prob_additional_objects = 0.7
     background_images = os.listdir(images_dir)
     numb_backgrounds = len(background_images)
+    images = []
+    annotations = []
 
     # Generate 1000 images per class.
     for clazz_id, value in classes.items():
@@ -187,8 +197,10 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
             background_image_path = background_images[random.randint(0, numb_backgrounds - 1)]
             # load background image
             background_image = load_image(images_dir + background_image_path)
-            b_height, b_width = background_image.shape[:2]
+            # Generate name for new image with objects in it
+            file_name = str(uuid.uuid4()).replace('-', '')
 
+            b_height, b_width = background_image.shape[:2]
             # Pick random augmented object
             foreground_object_path = clazz_images_names[random.randint(0, numb_clazz_objects - 1)]
             # load object image
@@ -198,21 +210,55 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
             x_offset, y_offset = generate_random_offset((b_height, b_width), (o_height, o_width))
             polygon = embed_object_into_image(foreground_object, background_image, (x_offset, y_offset))
             object_list.append(polygon)
+            image_annotation_dict = {
+                "id": str(uuid.uuid4()).replace('-', ''),
+                "iscrowd": 0,
+                "image_id": file_name,
+                "category_id": clazz_id,
+                "segmentation": [],
+                "bbox": [x_offset, y_offset, o_width, o_height],
+                "area": polygon.area
+            }
+            annotations.append(image_annotation_dict)
 
             # Add additional objects into the image
             while random.random() < prob_additional_objects:
+                # Pick random class
+                random_class_id, random_class_value = classes.random_item()
+                random_clazz_images_names = random_class_value['images']
+                numb_random_clazz_objects = len(random_clazz_images_names)
+
+                # Pick random object from class
+                random_foreground_object_path = random_clazz_images_names[random.randint(0, numb_random_clazz_objects - 1)]
+
+                random_foreground_object = load_image(objects_dir + random_foreground_object_path)
+                o_height, o_width = random_foreground_object.shape[:2]
+
                 while True:
                     x_offset, y_offset = generate_random_offset((b_height, b_width), (o_height, o_width))
                     if safe_polygon_placement((x_offset, y_offset, o_width, o_height), object_list):
                         break
-                # Pick random object from class
-                polygon = embed_object_into_image(foreground_object, background_image, (x_offset, y_offset))
-                object_list.append(polygon)
 
-            file_name = str(uuid.uuid4()).replace('-', '') + '.jpg'
-            cv2.imwrite(out + file_name, background_image)
-    # Create annotations for the object
-    # Store annotations for that object along with image information
+                random_polygon = embed_object_into_image(random_foreground_object, background_image, (x_offset, y_offset))
+                object_list.append(random_polygon)
+                random_image_annotation_dict = {
+                    "id": str(uuid.uuid4()).replace('-', ''),
+                    "iscrowd": 0,
+                    "image_id": file_name,
+                    "category_id": clazz_id,
+                    "segmentation": [np.array(random_polygon.exterior.coords).ravel().tolist()],
+                    "bbox": [x_offset, y_offset, o_width, o_height],
+                    "area": random_polygon.area
+                }
+                annotations.append(random_image_annotation_dict)
+
+            cv2.imwrite(out + file_name + '.jpg', background_image)
+
+            image_dict = {'id': file_name, 'width': b_height, 'height': b_height, 'file_name': file_name + '.jpg'}
+            images.append(image_dict)
+
+            # Create annotations for the object
+            # Store annotations for that object along with image information
     """
     {
   "info": {
@@ -228,47 +274,7 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
   ],
   "annotations": [
     {
-      "id": 0,
-      "iscrowd": 0,
-      "image_id": 1,
-      "category_id": 1,
-      "segmentation": [
-        [
-          328.95698051948034,
-          513.9634063852811,
-          333.1645698051947,
-          514.7284226190474,
-          340.4322240259739,
-          514.7284226190474,
-          343.4922889610388,
-          509.7558170995669,
-          347.6998782467531,
-          499.4280979437227,
-          347.31737012986997,
-          486.42282196969677,
-          342.34476461038946,
-          481.06770833333314,
-          344.63981331168816,
-          478.0076433982682,
-          339.66720779220765,
-          474.18256222943705,
-          332.01704545454527,
-          476.86011904761887,
-          326.2794237012985,
-          480.68520021645,
-          321.306818181818,
-          490.24790313852793,
-          323.98437499999983,
-          502.87067099567076
-        ]
-      ],
-      "bbox": [
-        321.306818181818,
-        474.18256222943705,
-        26.39306006493507,
-        40.54586038961031
-      ],
-      "area": 793.5987802274835
+      
     }
   ],
   "categories": [
@@ -279,7 +285,6 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
   ]
 }
     """
-
 
 
 if __name__ == '__main__':
@@ -295,7 +300,6 @@ if __name__ == '__main__':
     generated_images_information = generate_objects_from_images(img_dir, coco_annotations, categories)
 
     generate_images_using(augmented_objects_dir, background_images_dir, generated_images_information, out)
-
 
     """
     segmentation = annotations['annotations'][0]['segmentation'][0]
