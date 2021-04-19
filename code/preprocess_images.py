@@ -8,11 +8,11 @@ from typing import List, Dict
 
 import cv2
 import numpy as np
-from randomdict import RandomDict
 from numpy import ndarray
+from randomdict import RandomDict
 from shapely.geometry import Polygon, box
 
-from tools.tools import load_annotations, rotate_scale_image, load_image, save_annotations, clear_directory_contents
+from tools.tools import load_annotations, rotate_scale_image, load_image, save_annotations, clear_directory_contents, split_images_annotations
 
 
 def crop_object_from_image(image_src: ndarray, points: ndarray, xywh: List[int], padding=2):
@@ -166,14 +166,6 @@ def generate_random_offset(background_shape, object_shape):
     return random_x, random_y
 
 
-def create_image_label_dict():
-    pass
-
-
-def create_annotations_dict():
-    pass
-
-
 def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_images_per_class: int = 10):
     prob_additional_objects = 0.7
     background_images = os.listdir(images_dir)
@@ -225,7 +217,8 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
                 numb_random_clazz_objects = len(random_clazz_images_names)
 
                 # Pick random object from class
-                random_foreground_object_path = random_clazz_images_names[random.randint(0, numb_random_clazz_objects - 1)]
+                random_foreground_object_path = random_clazz_images_names[
+                    random.randint(0, numb_random_clazz_objects - 1)]
 
                 random_foreground_object = load_image(objects_dir + random_foreground_object_path)
                 o_height, o_width = random_foreground_object.shape[:2]
@@ -235,7 +228,8 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
                     if safe_polygon_placement((x_offset, y_offset, o_width, o_height), object_list):
                         break
 
-                random_polygon = embed_object_into_image(random_foreground_object, background_image, (x_offset, y_offset))
+                random_polygon = embed_object_into_image(random_foreground_object, background_image,
+                                                         (x_offset, y_offset))
                 object_list.append(random_polygon)
                 random_image_annotation_dict = {
                     "id": str(uuid.uuid4()).replace('-', ''),
@@ -267,6 +261,7 @@ if __name__ == '__main__':
     generated_train_annotation_path = '../data/generated_train_annotations.json'
     generated_val_annotation_path = '../data/generated_test_annotations.json'
     generated_test_annotation_path = '../data/generated_val_annotations.json'
+    generated_images_path = '../data/generated_images/'
 
     coco_annotations = load_annotations(annotation_dir)
     categories = coco_annotations['categories']
@@ -274,27 +269,11 @@ if __name__ == '__main__':
     clear_directory_contents([augmented_objects_dir, out, extrapolated_objects_dir])
     generated_images_information = generate_objects_from_images(img_dir, coco_annotations, categories)
 
-    image_information, annotations = generate_images_using(augmented_objects_dir, background_images_dir, generated_images_information, out)
+    image_information, annotations = generate_images_using(augmented_objects_dir, background_images_dir,
+                                                           generated_images_information, out)
 
     coco_annotations['images'] = image_information
     coco_annotations['annotations'] = annotations
     save_annotations(coco_annotations, generated_annotation_path)
 
-    # Split annotations and image_information into train, validation, test sets
-    validation_split = 0.20
-    test_split = 0.10
-    train_split = 1 - validation_split - test_split
-
-    num_rows = len(image_information)
-
-    train_split_index = int(np.floor((num_rows - 1) * train_split)) + 1
-    test_split_index = int(np.floor((num_rows - 1) * (train_split + test_split))) + 1
-
-    train = image_information[0:train_split_index]
-    test = image_information[train_split_index:test_split_index]
-    val = image_information[test_split_index:]
-
-    save_annotations(coco_annotations, generated_annotation_path)
-    save_annotations(coco_annotations, generated_annotation_path)
-    save_annotations(coco_annotations, generated_annotation_path)
-
+    split_images_annotations(image_information, annotations, coco_annotations, generated_images_path, '../')
