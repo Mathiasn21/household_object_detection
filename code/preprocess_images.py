@@ -12,7 +12,8 @@ from numpy import ndarray
 from randomdict import RandomDict
 from shapely.geometry import Polygon, box
 
-from tools.tools import load_annotations, rotate_scale_image, load_image, save_annotations, clear_directory_contents, split_images_annotations
+from tools.tools import load_annotations, rotate_scale_image, load_image, save_annotations, clear_directory_contents, \
+    split_images_annotations
 
 
 def crop_object_from_image(image_src: ndarray, points: ndarray, xywh: List[int], padding=2):
@@ -34,20 +35,6 @@ def crop_object_from_image(image_src: ndarray, points: ndarray, xywh: List[int],
     # Set background to color
     background = np.zeros_like(roi, np.uint8)
     cv2.bitwise_not(background, background, mask=object_mask)
-
-    """
-    # background_image = cv2.imread('../data/background_imgs/background_1.jpeg')
-    # images = [image_src, background_image]
-    # roi = background_image[150: 150 + height, 250:250 + width, :]
-    # mask_inv = cv2.bitwise_not(object_mask)
-
-    # result = rotate_image(object_fg, -60)
-
-    # roi_background = cv2.bitwise_and(roi, roi, mask=mask_inv[y:y + height, x:x + width])
-    # dst = cv2.add(roi_background, object_fg)
-
-    # background_image[150: 150 + height, 250:250 + width, :] = dst
-    """
     return background + object_fg
 
 
@@ -140,7 +127,8 @@ def embed_object_into_image(object_image, background_image, xy_offset):
     gray = cv2.cvtColor(object_image, cv2.COLOR_BGR2GRAY)
     # blur = cv2.GaussianBlur(gray, (3, 3), 0)
     thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-    contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours.sort(key=lambda x: x.shape[0], reverse=True)
 
     roi = background_image[y_offset:y_offset + o_height, x_offset:x_offset + o_width].copy()
 
@@ -148,12 +136,12 @@ def embed_object_into_image(object_image, background_image, xy_offset):
     dst = cv2.add(roi_background, object_image)
 
     background_image[y_offset: y_offset + o_height, x_offset:x_offset + o_width, :] = dst
-    if len(contours) < 2:
-        index = 0
-    else:
-        index = 1
+    #if len(contours) < 2:
+    #   index = 0
+    #else:
+    #    index = 1
 
-    resulting_contours = contours[index][:, 0, :] + [x_offset, y_offset]
+    resulting_contours = contours[0][:, 0, :] + [x_offset, y_offset]
     return Polygon(np.array(resulting_contours))
 
 
@@ -171,7 +159,7 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
     background_images = os.listdir(images_dir)
     numb_backgrounds = len(background_images)
     images = []
-    annotations = []
+    new_annotations = []
 
     # Generate 1000 images per class.
     for clazz_id, value in classes.items():
@@ -207,7 +195,7 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
                 "bbox": [x_offset, y_offset, o_width, o_height],
                 "area": polygon.area
             }
-            annotations.append(image_annotation_dict)
+            new_annotations.append(image_annotation_dict)
 
             # Add additional objects into the image
             while random.random() < prob_additional_objects:
@@ -240,19 +228,19 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
                     "bbox": [x_offset, y_offset, o_width, o_height],
                     "area": random_polygon.area
                 }
-                annotations.append(random_image_annotation_dict)
+                new_annotations.append(random_image_annotation_dict)
 
             cv2.imwrite(out + file_name + '.jpg', background_image)
 
             image_dict = {'id': file_name, 'width': b_height, 'height': b_height, 'file_name': file_name + '.jpg'}
             images.append(image_dict)
 
-    return images, annotations
+    return images, new_annotations
 
 
 if __name__ == '__main__':
     img_dir = '../data/testing_imgs'
-    annotation_dir = '../data/testing_annotations/household_objects.json'
+    annotation_dir = '../data/testing_annotations/household_objects2.json'
     augmented_objects_dir = '../data/augmented_objects/'
     background_images_dir = '../data/background_imgs/'
     extrapolated_objects_dir = '../data/extrapolated_objects/'
@@ -266,7 +254,7 @@ if __name__ == '__main__':
     coco_annotations = load_annotations(annotation_dir)
     categories = coco_annotations['categories']
 
-    clear_directory_contents([augmented_objects_dir, out, extrapolated_objects_dir])
+    clear_directory_contents([augmented_objects_dir, out, extrapolated_objects_dir, generated_images_path])
     generated_images_information = generate_objects_from_images(img_dir, coco_annotations, categories)
 
     image_information, annotations = generate_images_using(augmented_objects_dir, background_images_dir,
