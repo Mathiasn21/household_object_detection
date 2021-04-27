@@ -1,12 +1,13 @@
 import json
 import os
+import shutil
+import random
 from typing import Dict, List
 
 import cv2
-from numpy import ndarray
-import numpy as np
-
 import matplotlib.pyplot as plt
+import numpy as np
+from numpy import ndarray
 
 
 def load_annotations(file_path: str) -> Dict:
@@ -36,11 +37,36 @@ def show_images(images: List[ndarray]) -> None:
     plt.show(block=True)
 
 
-def split_images_annotations(image_information, annotations, coco_annotations, source_dir, target_dir):
+def split_background_images(source, target_dict: dict):
+    backgrounds = os.listdir(source)
+    random.shuffle(backgrounds)
+
+    validation_split = 0.20
+    test_split = 0.10
+    train_split = 1 - validation_split - test_split
+
+    num_rows = len(backgrounds)
+    train_split_index = int(np.floor((num_rows - 1) * train_split)) + 1
+    test_split_index = int(np.floor((num_rows - 1) * (train_split + test_split))) + 1
+
+    train_backgrounds = backgrounds[0:train_split_index]
+    test_backgrounds = backgrounds[train_split_index:test_split_index]
+    val_backgrounds = backgrounds[test_split_index:]
+
+    setup_dirs(list(target_dict.values()))
+    copy_files(source, target_dict['train'], train_backgrounds)
+    copy_files(source, target_dict['test'], test_backgrounds)
+    copy_files(source, target_dict['val'], val_backgrounds)
+
+
+def split_images_annotations(coco_annotations, source_dir, path_dict):
     # Split annotations and image_information into train, validation, test sets
     validation_split = 0.20
     test_split = 0.10
     train_split = 1 - validation_split - test_split
+    image_information = coco_annotations['images']
+    annotations = coco_annotations['annotations']
+
     num_rows = len(image_information)
     train_split_index = int(np.floor((num_rows - 1) * train_split)) + 1
     test_split_index = int(np.floor((num_rows - 1) * (train_split + test_split))) + 1
@@ -66,25 +92,23 @@ def split_images_annotations(image_information, annotations, coco_annotations, s
     test_annotations = annotations[split_indexes[0]:split_indexes[1]]
     val_annotations = annotations[split_indexes[1]:]
 
-    partial_f_name = '_coco_annotations.json'
-
-    setup_dirs([target_dir + 'data/images/train/', target_dir + 'data/images/test/',
-                target_dir + 'data/images/val/', target_dir + 'data/labels/'])
+    setup_dirs([path_dict['images']['train'], path_dict['images']['test'],
+                path_dict['images']['val'], path_dict['labels_path']])
 
     coco_annotations['images'] = train_image_information
     coco_annotations['annotations'] = train_annotations
-    save_annotations(coco_annotations, target_dir + 'data/labels/train' + partial_f_name)
-    move_files(source_dir, target_dir + 'data/images/train/', train_image_information)
+    save_annotations(coco_annotations, path_dict['labels']['train'])
+    copy_files(source_dir, path_dict['images']['train'], train_image_information)
 
     coco_annotations['images'] = test_image_information
     coco_annotations['annotations'] = test_annotations
-    save_annotations(coco_annotations, target_dir + 'data/labels/test' + partial_f_name)
-    move_files(source_dir, target_dir + 'data/images/test/', test_image_information)
+    save_annotations(coco_annotations, path_dict['labels']['test'])
+    copy_files(source_dir, path_dict['images']['test'], test_image_information)
 
     coco_annotations['images'] = val_image_information
     coco_annotations['annotations'] = val_annotations
-    save_annotations(coco_annotations, target_dir + 'data/labels/val' + partial_f_name)
-    move_files(source_dir, target_dir + 'data/images/val/', val_image_information)
+    save_annotations(coco_annotations, path_dict['labels']['val'])
+    copy_files(source_dir, path_dict['images']['val'], val_image_information)
 
 
 def setup_dirs(dirs: list):
@@ -102,6 +126,12 @@ def move_files(source_dir: str, target_dir: str, files):
     for file in files:
         file_name = file['file_name']
         os.replace(source_dir + file_name, target_dir + file_name)
+
+
+def copy_files(source_dir: str, target_dir: str, files):
+    for file in files:
+        file_name = file['file_name'] if 'file_name' in file else file
+        shutil.copy2(source_dir + file_name, target_dir + file_name)
 
 
 def rotate_scale_image(image: ndarray, angle: int, scale=1.0):

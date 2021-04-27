@@ -12,8 +12,8 @@ from numpy import ndarray
 from randomdict import RandomDict
 from shapely.geometry import Polygon, box
 
-from tools.tools import load_annotations, rotate_scale_image, load_image, save_annotations, clear_directory_contents, \
-    split_images_annotations
+from tools.tools import load_annotations, rotate_scale_image, load_image, save_annotations, split_images_annotations, \
+    split_background_images, setup_dirs
 
 
 def crop_object_from_image(image_src: ndarray, points: ndarray, xywh: List[int], padding=2):
@@ -82,11 +82,11 @@ def generate_objects_from_images(img_dir: str, coco_annotations, categories):
     image_annotations = sorted(image_annotations, key=lambda i: i['image_id'])
     image_annotations = iter(image_annotations)
 
+    image_annotation: Dict = next(image_annotations, {'image_id': -1})
+    ann_img_id: int = image_annotation['image_id']
+
     for image_desc in image_descriptions:
         image_id: int = image_desc['id']
-
-        image_annotation: Dict = next(image_annotations, {'image_id': -1})
-        ann_img_id: int = image_annotation['image_id']
 
         if ann_img_id == -1:
             break
@@ -104,9 +104,9 @@ def generate_objects_from_images(img_dir: str, coco_annotations, categories):
             object_fg = crop_object_from_image(image, points, xywh)
 
             file_new_name = str(uuid.uuid4()).replace('-', '')
-            cv2.imwrite('../data/extrapolated_objects/' + file_new_name + '.jpg', object_fg)
+            cv2.imwrite(extrapolated_objects_dir + file_new_name + '.jpg', object_fg)
 
-            generated_images_names = augment_image(object_fg, '../data/augmented_objects/')
+            generated_images_names = augment_image(object_fg, augmented_objects_dir)
             clazz_image_information[category_id]['images'].extend(generated_images_names)
 
             image_annotation = next(image_annotations, {'image_id': -1})
@@ -136,9 +136,9 @@ def embed_object_into_image(object_image, background_image, xy_offset):
     dst = cv2.add(roi_background, object_image)
 
     background_image[y_offset: y_offset + o_height, x_offset:x_offset + o_width, :] = dst
-    #if len(contours) < 2:
+    # if len(contours) < 2:
     #   index = 0
-    #else:
+    # else:
     #    index = 1
 
     resulting_contours = contours[0][:, 0, :] + [x_offset, y_offset]
@@ -154,14 +154,14 @@ def generate_random_offset(background_shape, object_shape):
     return random_x, random_y
 
 
-def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_images_per_class: int = 10):
-    prob_additional_objects = 0.7
+def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_images_per_class: int = 10, prob_add_object=0.7):
+    prob_additional_objects = prob_add_object
     background_images = os.listdir(images_dir)
     numb_backgrounds = len(background_images)
     images = []
     new_annotations = []
 
-    # Generate 1000 images per class.
+    # Generate 10 images per class.
     for clazz_id, value in classes.items():
         clazz_images_names = value['images']
         numb_clazz_objects = len(clazz_images_names)
@@ -183,6 +183,19 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
             foreground_object = load_image(objects_dir + foreground_object_path)
 
             o_height, o_width = foreground_object.shape[:2]
+            if o_height >= b_height or o_width >= b_width:
+                h_scalar = (b_height / 2) / o_height
+                w_scalar = (b_width / 2) / o_width
+
+                scalar = h_scalar if h_scalar < w_scalar else w_scalar
+
+                dimensions = (int(o_height * scalar), int(o_width * scalar))
+                foreground_object = cv2.resize(foreground_object, dimensions)
+                o_height, o_width = foreground_object.shape[:2]
+                small_bg = True  # Background image to small to support additional objects
+            else:
+                small_bg = False
+
             x_offset, y_offset = generate_random_offset((b_height, b_width), (o_height, o_width))
             polygon = embed_object_into_image(foreground_object, background_image, (x_offset, y_offset))
             object_list.append(polygon)
@@ -198,23 +211,32 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
             new_annotations.append(image_annotation_dict)
 
             # Add additional objects into the image
-            while random.random() < prob_additional_objects:
+            while not small_bg and random.random() < prob_additional_objects:
                 # Pick random class
                 random_class_id, random_class_value = classes.random_item()
                 random_clazz_images_names = random_class_value['images']
                 numb_random_clazz_objects = len(random_clazz_images_names)
 
                 # Pick random object from class
-                random_foreground_object_path = random_clazz_images_names[
-                    random.randint(0, numb_random_clazz_objects - 1)]
+                random_foreground_object_path = random_clazz_images_names[random.randint(0, numb_random_clazz_objects - 1)]
 
                 random_foreground_object = load_image(objects_dir + random_foreground_object_path)
                 o_height, o_width = random_foreground_object.shape[:2]
 
-                while True:
+                # Object already placed, no need to overcrowd the image.
+                if o_height >= b_height or o_width >= b_width:
+                    break
+
+                max_tries = 10
+                tries = 0
+                while True and tries < max_tries:
                     x_offset, y_offset = generate_random_offset((b_height, b_width), (o_height, o_width))
                     if safe_polygon_placement((x_offset, y_offset, o_width, o_height), object_list):
                         break
+                    tries += 1
+
+                if tries >= max_tries:
+                    continue
 
                 random_polygon = embed_object_into_image(random_foreground_object, background_image,
                                                          (x_offset, y_offset))
@@ -239,29 +261,66 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
 
 
 if __name__ == '__main__':
-    img_dir = '../data/testing_imgs'
-    annotation_dir = '../data/testing_annotations/household_objects2.json'
+    img_dir = '../data/testing_imgs/'
+    annotation_dir = '../data/testing_annotations/coco_household_object_detection.json'
     augmented_objects_dir = '../data/augmented_objects/'
     background_images_dir = '../data/background_imgs/'
     extrapolated_objects_dir = '../data/extrapolated_objects/'
-    out = '../data/generated_images/'
-    generated_annotation_path = '../data/generated_annotations.json'
-    generated_train_annotation_path = '../data/generated_train_annotations.json'
-    generated_val_annotation_path = '../data/generated_test_annotations.json'
-    generated_test_annotation_path = '../data/generated_val_annotations.json'
-    generated_images_path = '../data/generated_images/'
+
+    setup_dirs([augmented_objects_dir, extrapolated_objects_dir])
+
+    images_path = '../data/images/'
+    labels_path = '../data/labels/'
+    generated_labels_path = '../generated_data/labels/'
+    generated_images_path = '../generated_data/images/'
+
+    partial_f_name = '_coco_annotations.json'
+
+    generated_data_path_dict = {
+        'images': {'train': generated_images_path + 'train/', 'test': generated_images_path + 'test/',
+                   'val': generated_images_path + 'val/'},
+
+        'labels': {'train': generated_labels_path + 'train' + partial_f_name,
+                   'test': generated_labels_path + 'test' + partial_f_name,
+                   'val': generated_labels_path + 'val' + partial_f_name}
+    }
+    setup_dirs(list(generated_data_path_dict['images'].values()) + [generated_labels_path])
+
+    path_dict = {
+        'images': {'train': images_path + 'train/', 'test': images_path + 'test/', 'val': images_path + 'val/'},
+
+        'labels': {'train': labels_path + 'train' + partial_f_name,
+                   'test': labels_path + 'test' + partial_f_name,
+                   'val': labels_path + 'val' + partial_f_name},
+        'labels_path': labels_path
+    }
+    split_backgrounds = {'train': '../data/backgrounds/train/',
+                         'test': '../data/backgrounds/test/',
+                         'val': '../data/backgrounds/val/'}
 
     coco_annotations = load_annotations(annotation_dir)
-    categories = coco_annotations['categories']
 
-    clear_directory_contents([augmented_objects_dir, out, extrapolated_objects_dir, generated_images_path])
-    generated_images_information = generate_objects_from_images(img_dir, coco_annotations, categories)
+    # clear_directory_contents([augmented_objects_dir,
+    #                          generated_data_path_dict['labels_path'],
+    #                          extrapolated_objects_dir,
+    #                          generated_images_path] + list(generated_data_path_dict['images'].values()))
 
-    image_information, annotations = generate_images_using(augmented_objects_dir, background_images_dir,
-                                                           generated_images_information, out)
+    split_images_annotations(coco_annotations, img_dir, path_dict)
+    split_background_images(background_images_dir, split_backgrounds)
 
-    coco_annotations['images'] = image_information
-    coco_annotations['annotations'] = annotations
-    save_annotations(coco_annotations, generated_annotation_path)
+    for key, image_dir in path_dict['images'].items():
+        label_path = path_dict['labels'][key]
+        backgrounds = split_backgrounds[key]
+        img_dir_coco_annotations = load_annotations(label_path)
+        categories = img_dir_coco_annotations['categories']
 
-    split_images_annotations(image_information, annotations, coco_annotations, generated_images_path, '../')
+        annotation_out_path = generated_data_path_dict['labels'][key]
+        images_out_path = generated_data_path_dict['images'][key]
+
+        generated_images_information = generate_objects_from_images(image_dir, img_dir_coco_annotations, categories)
+        gen_image_information, gen_annotations = generate_images_using(augmented_objects_dir, backgrounds,
+                                                                       generated_images_information, images_out_path)
+        img_dir_coco_annotations['images'] = gen_image_information
+        img_dir_coco_annotations['annotations'] = gen_annotations
+
+        save_annotations(img_dir_coco_annotations, annotation_out_path)
