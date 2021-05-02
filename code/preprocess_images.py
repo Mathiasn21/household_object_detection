@@ -13,10 +13,10 @@ from randomdict import RandomDict
 from shapely.geometry import Polygon, box
 
 from tools.tools import load_annotations, rotate_scale_image, load_image, save_annotations, split_images_annotations, \
-    split_background_images, setup_dirs
+    split_background_images, setup_dirs, clear_directory_contents
 
 
-def crop_object_from_image(image_src: ndarray, points: ndarray, xywh: List[int], padding=2):
+def crop_object_from_image(image_src: ndarray, points: ndarray, xywh: List[int], padding=1):
     x, y, width, height = xywh
 
     width += padding
@@ -35,16 +35,16 @@ def crop_object_from_image(image_src: ndarray, points: ndarray, xywh: List[int],
     # Set background to color
     background = np.zeros_like(roi, np.uint8)
     cv2.bitwise_not(background, background, mask=object_mask)
-    return background + object_fg
+    return cv2.bitwise_and(background, object_fg)
 
 
-def augment_image(image: ndarray, directory: str):
+def augment_image(image: ndarray, directory: str, num_augmentations=20):
     # Probability for each augmentation to happen
     prob_perform_rotation = 0.8
-    prob_perform_scaling = 0.3
+    prob_perform_scaling = 0.5
     image_files_names = []
 
-    for x in range(10):
+    for x in range(num_augmentations):
         rotation = 0
         scale = 1.0
 
@@ -55,7 +55,7 @@ def augment_image(image: ndarray, directory: str):
                 rotation *= -1
 
         if random.random() < prob_perform_scaling:
-            scale = random.random() + 0.3
+            scale = random.random() + 0.5
 
         # Perform rotation and scaling on object if defined
         if rotation != 0 or scale != 1.0:
@@ -104,6 +104,7 @@ def generate_objects_from_images(img_dir: str, coco_annotations, categories):
             object_fg = crop_object_from_image(image, points, xywh)
 
             file_new_name = str(uuid.uuid4()).replace('-', '')
+
             cv2.imwrite(extrapolated_objects_dir + file_new_name + '.jpg', object_fg)
 
             generated_images_names = augment_image(object_fg, augmented_objects_dir)
@@ -125,23 +126,19 @@ def embed_object_into_image(object_image, background_image, xy_offset):
     o_height, o_width = object_image.shape[:2]
 
     gray = cv2.cvtColor(object_image, cv2.COLOR_BGR2GRAY)
-    # blur = cv2.GaussianBlur(gray, (3, 3), 0)
-    thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    thresh = cv2.threshold(blur, 1, 255, cv2.THRESH_BINARY)[1]
+    thresh_inv = 255 - thresh
     contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    contours.sort(key=lambda x: x.shape[0], reverse=True)
+    resulting_contours = max(contours, key=cv2.contourArea)[:, 0, :] + [x_offset, y_offset]
 
     roi = background_image[y_offset:y_offset + o_height, x_offset:x_offset + o_width].copy()
 
-    roi_background = cv2.bitwise_and(roi, roi, mask=thresh)
+    roi_background = cv2.bitwise_and(roi, roi, mask=thresh_inv)
     dst = cv2.add(roi_background, object_image)
 
     background_image[y_offset: y_offset + o_height, x_offset:x_offset + o_width, :] = dst
-    # if len(contours) < 2:
-    #   index = 0
-    # else:
-    #    index = 1
 
-    resulting_contours = contours[0][:, 0, :] + [x_offset, y_offset]
     return Polygon(np.array(resulting_contours))
 
 
@@ -154,14 +151,15 @@ def generate_random_offset(background_shape, object_shape):
     return random_x, random_y
 
 
-def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_images_per_class: int = 10, prob_add_object=0.7):
+def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_images_per_class: int = 100,
+                          prob_add_object=0.7):
     prob_additional_objects = prob_add_object
     background_images = os.listdir(images_dir)
     numb_backgrounds = len(background_images)
     images = []
     new_annotations = []
 
-    # Generate 10 images per class.
+    # Generate 1000 images per class.
     for clazz_id, value in classes.items():
         clazz_images_names = value['images']
         numb_clazz_objects = len(clazz_images_names)
@@ -189,7 +187,7 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
 
                 scalar = h_scalar if h_scalar < w_scalar else w_scalar
 
-                dimensions = (int(o_height * scalar), int(o_width * scalar))
+                dimensions = (int(o_width * scalar), int(o_height * scalar))
                 foreground_object = cv2.resize(foreground_object, dimensions)
                 o_height, o_width = foreground_object.shape[:2]
                 small_bg = True  # Background image to small to support additional objects
@@ -218,7 +216,8 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
                 numb_random_clazz_objects = len(random_clazz_images_names)
 
                 # Pick random object from class
-                random_foreground_object_path = random_clazz_images_names[random.randint(0, numb_random_clazz_objects - 1)]
+                random_foreground_object_path = random_clazz_images_names[
+                    random.randint(0, numb_random_clazz_objects - 1)]
 
                 random_foreground_object = load_image(objects_dir + random_foreground_object_path)
                 o_height, o_width = random_foreground_object.shape[:2]
@@ -245,7 +244,7 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
                     "id": str(uuid.uuid4()).replace('-', ''),
                     "iscrowd": 0,
                     "image_id": file_name,
-                    "category_id": clazz_id,
+                    "category_id": random_class_id,
                     "segmentation": [np.array(random_polygon.exterior.coords).ravel().tolist()],
                     "bbox": [x_offset, y_offset, o_width, o_height],
                     "area": random_polygon.area
@@ -254,20 +253,19 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
 
             cv2.imwrite(out + file_name + '.jpg', background_image)
 
-            image_dict = {'id': file_name, 'width': b_height, 'height': b_height, 'file_name': file_name + '.jpg'}
+            image_dict = {'id': file_name, 'width': b_width, 'height': b_height, 'file_name': file_name + '.jpg'}
             images.append(image_dict)
 
     return images, new_annotations
 
 
 if __name__ == '__main__':
-    img_dir = '../data/testing_imgs/'
-    annotation_dir = '../data/testing_annotations/coco_household_object_detection.json'
+    img_dir = '../data/home_interior_images/'
+    annotation_dir = '../data/testing_annotations/labels_household_object_detection_newest.json'
     augmented_objects_dir = '../data/augmented_objects/'
     background_images_dir = '../data/background_imgs/'
     extrapolated_objects_dir = '../data/extrapolated_objects/'
-
-    setup_dirs([augmented_objects_dir, extrapolated_objects_dir])
+    bck_base_path = '../data/backgrounds/'
 
     images_path = '../data/images/'
     labels_path = '../data/labels/'
@@ -282,9 +280,9 @@ if __name__ == '__main__':
 
         'labels': {'train': generated_labels_path + 'train' + partial_f_name,
                    'test': generated_labels_path + 'test' + partial_f_name,
-                   'val': generated_labels_path + 'val' + partial_f_name}
+                   'val': generated_labels_path + 'val' + partial_f_name},
+        'labels_path': generated_labels_path
     }
-    setup_dirs(list(generated_data_path_dict['images'].values()) + [generated_labels_path])
 
     path_dict = {
         'images': {'train': images_path + 'train/', 'test': images_path + 'test/', 'val': images_path + 'val/'},
@@ -294,16 +292,21 @@ if __name__ == '__main__':
                    'val': labels_path + 'val' + partial_f_name},
         'labels_path': labels_path
     }
-    split_backgrounds = {'train': '../data/backgrounds/train/',
-                         'test': '../data/backgrounds/test/',
-                         'val': '../data/backgrounds/val/'}
+    split_backgrounds = {'train': bck_base_path + 'train/',
+                         'test': bck_base_path + 'test/',
+                         'val': bck_base_path + 'val/'}
+
+    clear_directory_contents([augmented_objects_dir,
+                              bck_base_path,
+                              '../generated_data/',
+                              extrapolated_objects_dir,
+                              images_path,
+                              labels_path])
+
+    setup_dirs(list(generated_data_path_dict['images'].values()) + [generated_labels_path, augmented_objects_dir,
+                                                                    extrapolated_objects_dir])
 
     coco_annotations = load_annotations(annotation_dir)
-
-    # clear_directory_contents([augmented_objects_dir,
-    #                          generated_data_path_dict['labels_path'],
-    #                          extrapolated_objects_dir,
-    #                          generated_images_path] + list(generated_data_path_dict['images'].values()))
 
     split_images_annotations(coco_annotations, img_dir, path_dict)
     split_background_images(background_images_dir, split_backgrounds)

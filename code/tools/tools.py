@@ -118,8 +118,7 @@ def setup_dirs(dirs: list):
 
 def clear_directory_contents(directories: list):
     for directory in directories:
-        for file in os.listdir(directory):
-            os.remove(directory + file)
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 def move_files(source_dir: str, target_dir: str, files):
