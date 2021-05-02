@@ -8,6 +8,7 @@ data/
 # C extensions
 *.so
 code/output
+generated_data/
 # Distribution / packaging
 .Python
 build/
