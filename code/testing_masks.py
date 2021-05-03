@@ -46,67 +46,35 @@ thresh_inv = 255 - thresh
 contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 resulting_contours = max(contours, key=cv2.contourArea)[:, 0, :]
 
-# create a simple mask image similar
-# to the loaded image, with the
-# shape and return type
-
-mask = np.zeros(object_image.shape[:2], np.uint8)
-
-# specify the background and foreground model
-# using numpy the array is constructed of 1 row
-# and 65 columns, and all array elements are 0
-# Data type for the array is np.float64 (default)
-backgroundModel = np.zeros((1, 65), np.float64)
-foregroundModel = np.zeros((1, 65), np.float64)
-
-# define the Region of Interest (ROI)
-# as the coordinates of the rectangle
-# where the values are entered as
-# (startingPoint_x, startingPoint_y, width, height)
-# these coordinates are according to the input image
-# it may vary for different images
 polygon = Polygon(np.array(resulting_contours))
 
 rectangle = tuple(map(int, polygon.bounds))
 
-fgbg1 = cv2.BackgroundSubtractor()
-fgbg2 = cv2.createBackgroundSubtractorMOG2()
-fgbg3 = cv2.createBackgroundSubtractorKNN()
+# mask = np.zeros(object_image.shape[:2], np.uint8)
 
-
-fgmask2 = fgbg2.apply(object_image)
-fgmask3 = fgbg3.apply(object_image)
-show_image(fgmask2)
-show_image(fgmask3)
+# backgroundModel = np.zeros((1, 65), np.float64)
+# foregroundModel = np.zeros((1, 65), np.float64)
 
 # mask[thresh_inv == 0] = 0
 # mask[thresh_inv == 255] = 1
-# apply the grabcut algorithm with appropriate
-# values as parameters, number of iterations = 3
-# cv2.GC_INIT_WITH_RECT is used because
-# of the rectangle mode is used
 # cv2.grabCut(object_image, mask, rectangle, backgroundModel, foregroundModel, 5, cv2.GC_INIT_WITH_RECT)
-
-# In the new mask image, pixels will
-# be marked with four flags
-# four flags denote the background / foreground
-# mask is changed, all the 0 and 2 pixels
-# are converted to the background
-# mask is changed, all the 1 and 3 pixels
-# are now the part of the foreground
-# the return type is also mentioned,
-# this gives us the final mask
 # mask = np.where((mask == 2) | (mask == 0), 0, 1).astype('uint8')
-
 # show_image(mask)
 
-# The final mask is multiplied with
-# the input image to give the segmented image.
 # image = object_image * mask[:, :, np.newaxis]
 # show_image(image)
+# fgbg2 = cv2.createBackgroundSubtractorMOG2()
+# fgbg3 = cv2.createBackgroundSubtractorKNN()
+
+
+# fgmask2 = fgbg2.apply(object_image)
+# fgmask3 = fgbg3.apply(object_image)
+# show_image(fgmask2)
+# show_image(fgmask3)
+
 
 roi = background_image[y_offset:y_offset + o_height, x_offset:x_offset + o_width].copy()
-roi_background = cv2.bitwise_and(roi, roi, mask=fgmask2)
+roi_background = cv2.bitwise_and(roi, roi, mask=thresh_inv)
 
 dst = cv2.add(roi_background, object_image)
 show_image(dst)
