@@ -63,6 +63,14 @@ def augment_image(image: ndarray, directory: str, num_augmentations=20):
         else:
             object_fg = image
 
+        # Perform random contrast changes
+
+        # Flip vertically
+
+        # Flip horizontal
+
+        # Perform random color shift
+
         file_name = str(uuid.uuid4()).replace('-', '') + '.jpg'
         image_files_names.append(file_name)
         cv2.imwrite(directory + file_name, object_fg)
