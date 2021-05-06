@@ -1,12 +1,13 @@
 import json
 import os
-import shutil
 import random
+import shutil
 from typing import Dict, List
 
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
+import yaml
 from numpy import ndarray
 
 
@@ -20,6 +21,40 @@ def save_annotations(annotations, file_path: str):
     json_formatted_annotations = json.dumps(annotations)
     with open(file_path, 'w+') as json_file:
         json_file.write(json_formatted_annotations)
+
+
+def generate_path_dict(images_path, labels_path, partial_f_name):
+    path_dict = {
+        'images': {'train': images_path + 'train/',
+                   'test': images_path + 'test/',
+                   'val': images_path + 'val/'},
+
+        'labels': {'train': labels_path + 'train' + partial_f_name,
+                   'test': labels_path + 'test' + partial_f_name,
+                   'val': labels_path + 'val' + partial_f_name},
+        'labels_path': labels_path
+    }
+    return path_dict
+
+
+def dump_config_file(config_path: str, config: Dict):
+    """
+    Dump a YAML config into a file.
+    :param config_path: str
+    :param config: Dict
+    """
+    with open(config_path, 'w') as f:
+        yaml.dump(config, f, sort_keys=True)
+
+
+def load_config_file(file_path: str) -> Dict:
+    """
+    Load a YAML config file. Uses UnsafeLoader
+    :rtype: Dict
+    """
+    with open(file_path, 'r') as yaml_file:
+        cfg = yaml.load(yaml_file, Loader=yaml.UnsafeLoader)
+    return cfg
 
 
 def load_image(file_path: str):

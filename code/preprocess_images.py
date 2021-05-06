@@ -13,7 +13,7 @@ from randomdict import RandomDict
 from shapely.geometry import Polygon, box
 
 from tools.tools import load_annotations, rotate_scale_image, load_image, save_annotations, split_images_annotations, \
-    split_background_images, setup_dirs, clear_directory_contents
+    split_background_images, setup_dirs, clear_directory_contents, generate_path_dict, load_config_file
 
 
 def crop_object_from_image(image_src: ndarray, points: ndarray, xywh: List[int], padding=1):
@@ -73,9 +73,11 @@ def round_all(numbers):
     return [round(number) for number in numbers]
 
 
-def generate_objects_from_images(img_dir: str, coco_annotations, categories):
+def generate_objects_from_images(img_dir: str, coco_annotations, extrapolated_objects_dir, augmented_objects_dir):
     image_descriptions = coco_annotations['images']
     image_annotations = coco_annotations['annotations']
+    categories = coco_annotations['categories']
+
     clazz_image_information = RandomDict({x['id']: {'name': x['name'], 'images': []} for x in categories})
 
     # Sort coco_annotations by image_id
@@ -216,8 +218,8 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
                 numb_random_clazz_objects = len(random_clazz_images_names)
 
                 # Pick random object from class
-                random_foreground_object_path = random_clazz_images_names[
-                    random.randint(0, numb_random_clazz_objects - 1)]
+                random_index = random.randint(0, numb_random_clazz_objects - 1)
+                random_foreground_object_path = random_clazz_images_names[random_index]
 
                 random_foreground_object = load_image(objects_dir + random_foreground_object_path)
                 o_height, o_width = random_foreground_object.shape[:2]
@@ -228,7 +230,7 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
 
                 max_tries = 10
                 tries = 0
-                while True and tries < max_tries:
+                while tries < max_tries:
                     x_offset, y_offset = generate_random_offset((b_height, b_width), (o_height, o_width))
                     if safe_polygon_placement((x_offset, y_offset, o_width, o_height), object_list):
                         break
@@ -260,68 +262,48 @@ def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_i
 
 
 if __name__ == '__main__':
-    img_dir = '../data/home_interior_images/'
-    annotation_dir = '../data/testing_annotations/labels_household_object_detection_newest.json'
-    augmented_objects_dir = '../data/augmented_objects/'
-    background_images_dir = '../data/background_imgs/'
-    extrapolated_objects_dir = '../data/extrapolated_objects/'
-    bck_base_path = '../data/backgrounds/'
+    config_path = '../configs/preprocess_images_config.yaml'
+    config = load_config_file(config_path)
 
-    images_path = '../data/images/'
-    labels_path = '../data/labels/'
-    generated_labels_path = '../generated_data/labels/'
-    generated_images_path = '../generated_data/images/'
-
-    partial_f_name = '_coco_annotations.json'
-
-    generated_data_path_dict = {
-        'images': {'train': generated_images_path + 'train/', 'test': generated_images_path + 'test/',
-                   'val': generated_images_path + 'val/'},
-
-        'labels': {'train': generated_labels_path + 'train' + partial_f_name,
-                   'test': generated_labels_path + 'test' + partial_f_name,
-                   'val': generated_labels_path + 'val' + partial_f_name},
-        'labels_path': generated_labels_path
-    }
-
-    path_dict = {
-        'images': {'train': images_path + 'train/', 'test': images_path + 'test/', 'val': images_path + 'val/'},
-
-        'labels': {'train': labels_path + 'train' + partial_f_name,
-                   'test': labels_path + 'test' + partial_f_name,
-                   'val': labels_path + 'val' + partial_f_name},
-        'labels_path': labels_path
-    }
+    bck_base_path = config['bck_base_path']
     split_backgrounds = {'train': bck_base_path + 'train/',
                          'test': bck_base_path + 'test/',
                          'val': bck_base_path + 'val/'}
 
-    clear_directory_contents([augmented_objects_dir,
+    generated_data_path_dict = generate_path_dict(config['generated_images_path'],
+                                                  config['generated_labels_path'],
+                                                  config['partial_f_name'])
+    path_dict = generate_path_dict(config['images_path'],
+                                   config['labels_path'],
+                                   config['partial_f_name'])
+
+    clear_directory_contents([config['augmented_objects_dir'],
                               bck_base_path,
                               '../generated_data/',
-                              extrapolated_objects_dir,
-                              images_path,
-                              labels_path])
+                              config['extrapolated_objects_dir'],
+                              config['images_path'],
+                              config['labels_path']])
+    directories = list(generated_data_path_dict['images'].values()) + [config['generated_labels_path'],
+                                                                       config['augmented_objects_dir'],
+                                                                       config['extrapolated_objects_dir']]
+    setup_dirs(directories)
 
-    setup_dirs(list(generated_data_path_dict['images'].values()) + [generated_labels_path, augmented_objects_dir,
-                                                                    extrapolated_objects_dir])
-
-    coco_annotations = load_annotations(annotation_dir)
-
-    split_images_annotations(coco_annotations, img_dir, path_dict)
-    split_background_images(background_images_dir, split_backgrounds)
+    coco_annotations = load_annotations(config['annotation_dir'])
+    split_images_annotations(coco_annotations, config['img_dir'], path_dict)
+    split_background_images(config['background_images_dir'], split_backgrounds)
 
     for key, image_dir in path_dict['images'].items():
         label_path = path_dict['labels'][key]
         backgrounds = split_backgrounds[key]
         img_dir_coco_annotations = load_annotations(label_path)
-        categories = img_dir_coco_annotations['categories']
 
         annotation_out_path = generated_data_path_dict['labels'][key]
         images_out_path = generated_data_path_dict['images'][key]
 
-        generated_images_information = generate_objects_from_images(image_dir, img_dir_coco_annotations, categories)
-        gen_image_information, gen_annotations = generate_images_using(augmented_objects_dir, backgrounds,
+        generated_images_information = generate_objects_from_images(image_dir, img_dir_coco_annotations,
+                                                                    config['extrapolated_objects_dir'],
+                                                                    config['augmented_objects_dir'])
+        gen_image_information, gen_annotations = generate_images_using(config['augmented_objects_dir'], backgrounds,
                                                                        generated_images_information, images_out_path)
         img_dir_coco_annotations['images'] = gen_image_information
         img_dir_coco_annotations['annotations'] = gen_annotations

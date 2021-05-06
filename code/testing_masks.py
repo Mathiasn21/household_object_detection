@@ -1,10 +1,7 @@
 # Load two images
 import cv2
 import numpy as np
-import torch
 from shapely.geometry import Polygon
-from torchvision.models.segmentation import deeplabv3_resnet101
-from torchvision import transforms
 
 
 def show_image(image):
@@ -13,6 +10,7 @@ def show_image(image):
     cv2.destroyAllWindows()
 
 
+print(min(2, 1))
 background_image = cv2.imread('../data/background_imgs/bill-wegener-XhX113Jvr5o-unsplash.jpg')
 object_image = cv2.imread('../data/extrapolated_objects/1adabf73dd8e489389cc96beec9db6d9.jpg')
 

@@ -2,15 +2,30 @@ import os
 
 import cv2
 
-from tools.tools import load_annotations, load_image, save_annotations
+from tools.tools import load_annotations, load_image, save_annotations, load_config_file
 import numpy as np
 
 
-def resize_annotated_imgs():
-    annotations_out = '../data/testing_annotations/labels_household_object_detection_resized.json'
-    ann_path = '../data/testing_annotations/labels_household_object_detection_newest.json'
-    images_path = '../data/home_interior_images/'
-    max_size = 2000
+def calc_new_dimensions(max_size, width, height):
+    width_scalar = max_size / width
+    height_scalar = max_size / height
+
+    best_fit_scalar = min(width_scalar, height_scalar)
+    dimensions = (int(width * best_fit_scalar), int(height * best_fit_scalar))
+    return dimensions, best_fit_scalar
+
+
+def resize_segmentations(image_id, annotations_by_img_id, best_fit_scalar):
+    for segmentations in annotations_by_img_id[image_id]:
+        for index, segmentation in enumerate(segmentations):
+            segmentations[index] = (np.array(segmentation) * best_fit_scalar).tolist()
+
+
+def resize_annotated_imgs(config):
+    annotations_out = config['annotations_out']
+    ann_path = config['ann_path']
+    images_path = config['images_path']
+    max_size = config['original_max_size']
 
     coco_annotations = load_annotations(ann_path)
     annotations = coco_annotations['annotations']
@@ -33,11 +48,7 @@ def resize_annotated_imgs():
         height, width = image.shape[:2]
 
         if width > max_size or height > max_size:
-            width_scalar = max_size / width
-            height_scalar = max_size / height
-
-            best_fit_scalar = width_scalar if width_scalar <= height_scalar else height_scalar
-            dimensions = (int(width * best_fit_scalar), int(height * best_fit_scalar))
+            dimensions, best_fit_scalar = calc_new_dimensions(max_size, width, height)
 
             if file_name in images_by_name:
                 # Correct annotations as well
@@ -47,31 +58,26 @@ def resize_annotated_imgs():
                 image_information['height'] = dimensions[0]
 
                 if image_id in annotations_by_img_id:
-                    for segmentations in annotations_by_img_id[image_id]:
-                        for index, segmentation in enumerate(segmentations):
-                            segmentations[index] = (np.array(segmentation) * best_fit_scalar).tolist()
+                    resize_segmentations(image_id, annotations_by_img_id, best_fit_scalar)
+
                 save_annotations(coco_annotations, annotations_out)
             cv2.imwrite(full_path, cv2.resize(image, dimensions))
 
 
-def resize_bg_imgs():
-    max_size = 2000
-    images_path = '../data/background_imgs/'
-
+def resize_bg_imgs(images_path, max_size):
     for file_name in os.listdir(images_path):
         full_path = images_path + file_name
         image = load_image(full_path)
         height, width = image.shape[:2]
 
         if width > max_size or height > max_size:
-            width_scalar = max_size / width
-            height_scalar = max_size / height
-
-            best_fit_scalar = width_scalar if width_scalar <= height_scalar else height_scalar
-            dimensions = (int(width * best_fit_scalar), int(height * best_fit_scalar))
+            dimensions, best_fit_scalar = calc_new_dimensions(max_size, width, height)
             cv2.imwrite(full_path, cv2.resize(image, dimensions))
 
 
 if __name__ == '__main__':
-    # resize_annotated_imgs()
-    resize_bg_imgs()
+    config_path = '../configs/resize_config.yaml'
+    config = load_config_file(config_path)
+
+    resize_bg_imgs(config['images_path'], config['background_max_size'])
+    resize_annotated_imgs(config)

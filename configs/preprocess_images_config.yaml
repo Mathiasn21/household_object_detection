@@ -1,0 +1,15 @@
+img_dir: '../data/home_interior_images/'
+annotation_dir: '../data/testing_annotations/labels_household_object_detection_newest.json'
+background_images_dir: '../data/background_imgs/'
+
+augmented_objects_dir: '../data/augmented_objects/'
+extrapolated_objects_dir: '../data/extrapolated_objects/'
+bck_base_path: '../data/backgrounds/'
+
+images_path: '../data/images/'
+labels_path: '../data/labels/'
+
+generated_labels_path: '../generated_data/labels/'
+generated_images_path: '../generated_data/images/'
+
+partial_f_name: '_coco_annotations.json'
