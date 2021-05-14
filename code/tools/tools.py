@@ -182,7 +182,7 @@ def rotate_scale_image(image: ndarray, angle: int, scale=1.0):
     bound_w = int(height * abs_sin + width * abs_cos)
     bound_h = int(height * abs_cos + width * abs_sin)
 
-    # subtract old image center (bringing image back to origo) and adding the new image center coordinates
+    # subtract old image center and add the new image center coordinates
     rot_mat[0, 2] += bound_w / 2 - image_center[0]
     rot_mat[1, 2] += bound_h / 2 - image_center[1]
     color = (0, 0, 0)

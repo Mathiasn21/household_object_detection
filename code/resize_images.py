@@ -79,5 +79,5 @@ if __name__ == '__main__':
     config_path = '../configs/resize_config.yaml'
     config = load_config_file(config_path)
 
-    resize_bg_imgs(config['images_path'], config['background_max_size'])
+    resize_bg_imgs(config['background_images_path'], config['background_max_size'])
     resize_annotated_imgs(config)

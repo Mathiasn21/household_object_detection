@@ -29,7 +29,7 @@ if __name__ == '__main__':
     train_ann_path = '../generated_data/labels/train_coco_annotations.json'
     # train_ann_path = '../data/labels/train_coco_annotations.json'
     test_ann_path = '../data/labels/test_coco_annotations.json'
-    # val_ann_path = '../generated_data/labels/val_coco_annotations.json'
+    generated_val_ann_path = '../generated_data/labels/val_coco_annotations.json'
     val_ann_path = '../data/labels/val_coco_annotations.json'
 
     # Variables for tattoo images root path
@@ -37,30 +37,34 @@ if __name__ == '__main__':
     train_img_path = '../generated_data/images/train'
     test_img_path = '../data/images/test'
     val_img_path = '../data/images/val'
-    # val_img_path = '../generated_data/images/val'
+    generated_val_img_path = '../generated_data/images/val'
     categories = load_annotations(train_ann_path)['categories']
 
     class_dict = {}
     # Register the datasets and corresponding annotations in COCO format
     register_coco_instances('objects_train', class_dict, train_ann_path, train_img_path)
     register_coco_instances('objects_val', class_dict, val_ann_path, val_img_path)
+    register_coco_instances('generated_objects_val', class_dict, generated_val_ann_path, generated_val_img_path)
     register_coco_instances('objects_test', {}, test_ann_path, test_img_path)
 
     # Setup model configuration
     cfg = get_cfg()
     cfg.merge_from_file(model_zoo.get_config_file('COCO-InstanceSegmentation/mask_rcnn_R_101_FPN_3x.yaml'))
-    cfg.DATASETS.TRAIN = ('objects_train',)
+    cfg.DATASETS.TRAIN = ('objects_train', 'generated_objects_val')
     cfg.DATASETS.TEST = ('objects_val',)
     cfg.DATALOADER.NUM_WORKERS = 2
     cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url('COCO-InstanceSegmentation/mask_rcnn_R_101_FPN_3x.yaml')
     cfg.SOLVER.IMS_PER_BATCH = 2
     cfg.SOLVER.BASE_LR = 0.001
     cfg.SOLVER.WARMUP_ITERS = 1000
-    cfg.SOLVER.MAX_ITER = 3000
-    cfg.SOLVER.STEPS = (1000, 1500, 2000)
+    cfg.SOLVER.MAX_ITER = 5000
+    cfg.SOLVER.STEPS = (1000, 1500, 2000, 3000, 4000)
     cfg.SOLVER.GAMMA = 0.05
-    cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 64
+    cfg.SOLVER.CHECKPOINT_PERIOD = 1000
+    cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 128
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(categories)
+    cfg.MODEL.SEM_SEG_HEAD.NUM_CLASSES = len(categories)
+
 
     # Create directories if not existing
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)

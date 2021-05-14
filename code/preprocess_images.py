@@ -8,11 +8,14 @@ from typing import List, Dict
 
 import cv2
 import numpy as np
+import torchvision
 from numpy import ndarray
 from randomdict import RandomDict
 from shapely.geometry import Polygon, box
+from torchvision.transforms import RandomHorizontalFlip, RandomVerticalFlip, RandomRotation, RandomErasing, \
+    RandomPerspective, RandomSolarize, ColorJitter, transforms
 
-from tools.tools import load_annotations, rotate_scale_image, load_image, save_annotations, split_images_annotations, \
+from tools.tools import load_annotations, load_image, save_annotations, split_images_annotations, \
     split_background_images, setup_dirs, clear_directory_contents, generate_path_dict, load_config_file
 
 
@@ -38,30 +41,40 @@ def crop_object_from_image(image_src: ndarray, points: ndarray, xywh: List[int],
     return cv2.bitwise_and(background, object_fg)
 
 
-def augment_image(image: ndarray, directory: str, num_augmentations=20):
+def augment_image(image: ndarray, directory: str, num_augmentations=50):
     # Probability for each augmentation to happen
     prob_perform_rotation = 0.8
     prob_perform_scaling = 0.5
     image_files_names = []
+
+    augmentations = [RandomHorizontalFlip(),
+                     RandomVerticalFlip(),
+                     RandomRotation((-360, 360)),
+                     # RandomErasing(scale=(0.02, 0.15), p=0.3),
+                     RandomPerspective(distortion_scale=0.65),
+                     ColorJitter(brightness=0.0, contrast=0.0, saturation=0.5, hue=0.5),
+                     RandomSolarize(0.4, p=0.2)]
+
+    aug_transformations = transforms.Compose(augmentations)
 
     for x in range(num_augmentations):
         rotation = 0
         scale = 1.0
 
         # Set randomly rotation and scaling
-        if random.random() < prob_perform_rotation:
-            rotation = random.randrange(10, 360, 5)
-            if random.random() < 0.5:
-                rotation *= -1
+        # if random.random() < prob_perform_rotation:
+        #    rotation = random.randrange(10, 360, 5)
+        #    if random.random() < 0.5:
+        #        rotation *= -1
 
-        if random.random() < prob_perform_scaling:
-            scale = random.random() + 0.5
+        # if random.random() < prob_perform_scaling:
+        #    scale = random.random() + 0.5
 
         # Perform rotation and scaling on object if defined
-        if rotation != 0 or scale != 1.0:
-            object_fg = rotate_scale_image(image, rotation, scale=scale)
-        else:
-            object_fg = image
+        # if rotation != 0 or scale != 1.0:
+        #    object_fg = rotate_scale_image(image, rotation, scale=scale)
+        # else:
+        #    object_fg = image
 
         # Perform random contrast changes
 
@@ -70,6 +83,12 @@ def augment_image(image: ndarray, directory: str, num_augmentations=20):
         # Flip horizontal
 
         # Perform random color shift
+        tran = torchvision.transforms.ToTensor()
+        tensored_image = tran(image)
+
+        augmented = aug_transformations(tensored_image)
+        img_altered = augmented.T.numpy() * 255
+        object_fg = np.swapaxes(img_altered, 0, 1)
 
         file_name = str(uuid.uuid4()).replace('-', '') + '.jpg'
         image_files_names.append(file_name)
@@ -161,8 +180,7 @@ def generate_random_offset(background_shape, object_shape):
     return random_x, random_y
 
 
-def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_images_per_class: int = 100,
-                          prob_add_object=0.7):
+def generate_images_using(objects_dir: str, images_dir: str, classes, out, min_images_per_class: int = 100, prob_add_object=0.3):
     prob_additional_objects = prob_add_object
     background_images = os.listdir(images_dir)
     numb_backgrounds = len(background_images)

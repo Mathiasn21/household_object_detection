@@ -2,5 +2,5 @@ annotations_out: ../data/testing_annotations/labels_household_object_detection_r
 ann_path: ../data/testing_annotations/labels_household_object_detection_newest.json
 images_path: ../data/home_interior_images/
 background_images_path: ../data/background_imgs/
-background_max_size: 2000
-original_max_size: 2000
+background_max_size: 1000
+original_max_size: 1000

@@ -1,9 +1,0 @@
-sqlpac:
-  user: sqlpac
-  wwwurl: https://www.sqlpac.com
-google:
-  apis:
-    - googleindexing
-    - googleanalytics
-
-
