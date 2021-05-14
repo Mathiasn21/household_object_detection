@@ -55,16 +55,15 @@ if __name__ == '__main__':
     cfg.DATALOADER.NUM_WORKERS = 2
     cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url('COCO-InstanceSegmentation/mask_rcnn_R_101_FPN_3x.yaml')
     cfg.SOLVER.IMS_PER_BATCH = 2
-    cfg.SOLVER.BASE_LR = 0.001
+    cfg.SOLVER.BASE_LR = 0.01
     cfg.SOLVER.WARMUP_ITERS = 1000
-    cfg.SOLVER.MAX_ITER = 5000
-    cfg.SOLVER.STEPS = (1000, 1500, 2000, 3000, 4000)
+    cfg.SOLVER.MAX_ITER = 8000
+    cfg.SOLVER.STEPS = (1000, 1500, 2000, 3000, 4000, 6000, 7000)
     cfg.SOLVER.GAMMA = 0.05
     cfg.SOLVER.CHECKPOINT_PERIOD = 1000
     cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 128
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(categories)
     cfg.MODEL.SEM_SEG_HEAD.NUM_CLASSES = len(categories)
-
 
     # Create directories if not existing
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)

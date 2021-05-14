@@ -56,7 +56,7 @@ if __name__ == '__main__':
     del detectron2_train_runs[run_iteration]
     rows = len(detectron2_train_runs)
     columns = len(information_keys) - 1
-    fig, axs = plt.subplots(nrows=rows, ncols=columns, squeeze=False, figsize=(70, 5))
+    fig, axs = plt.subplots(nrows=rows, ncols=columns, squeeze=False, figsize=(70, 10))
     fig.subplots_adjust(hspace=0.4, wspace=0.4)
     for row in range(rows):
         train_run = detectron2_train_runs[row]
