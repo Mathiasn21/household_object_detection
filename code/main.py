@@ -56,8 +56,9 @@ if __name__ == '__main__':
     del detectron2_train_runs[run_iteration]
     rows = len(detectron2_train_runs)
     columns = len(information_keys) - 1
-    fig, axs = plt.subplots(nrows=rows, ncols=columns, squeeze=False, figsize=(70, 10))
-    fig.subplots_adjust(hspace=0.4, wspace=0.4)
+    fig, axs = plt.subplots(nrows=rows, ncols=columns)
+
+    ax: Axes
     for row in range(rows):
         train_run = detectron2_train_runs[row]
         for column, key in enumerate(information_keys):
@@ -68,9 +69,13 @@ if __name__ == '__main__':
             x_iterations = train_run['iteration']
             y_info = train_run[key]
 
-            ax: Axes = axs[row, column]
+            ax: Axes = axs[row + column]
             ax.plot(x_iterations, y_info)
             ax.set_xlabel('Iterations')
             ax.set_ylabel(key)
-    plt.savefig("baseline.svg")
+
+    fig.set_size_inches([70, 3])
+    fig.tight_layout(pad=1.0)
+
+    plt.savefig("./statistical_results/baseline.svg")
     plt.show()

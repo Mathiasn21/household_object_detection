@@ -43,10 +43,7 @@ def crop_object_from_image(image_src: ndarray, points: ndarray, xywh: List[int],
 
 def augment_image(image: ndarray, directory: str, num_augmentations=50):
     # Probability for each augmentation to happen
-    prob_perform_rotation = 0.8
-    prob_perform_scaling = 0.5
     image_files_names = []
-
     augmentations = [RandomHorizontalFlip(),
                      RandomVerticalFlip(),
                      RandomRotation((-360, 360)),
