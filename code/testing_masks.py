@@ -3,7 +3,6 @@ import cv2
 import numpy as np
 from matplotlib import pyplot as plt
 
-from tools.poisson_embed import poisson_edit
 
 
 # augs = torchvision.transforms.Compose([
