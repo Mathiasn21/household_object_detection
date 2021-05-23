@@ -7,6 +7,7 @@ __pycache__
 data/
 # C extensions
 *.so
+*.pth
 code/output
 results/
 generated_data/
